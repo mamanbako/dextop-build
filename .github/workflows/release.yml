@@ -4,6 +4,12 @@ on:
   push:
     tags:
       - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to publish"
+        required: true
+        default: "v0.1.1"
 
 permissions:
   contents: write
@@ -18,7 +24,11 @@ jobs:
       - id: version
         shell: bash
         run: |
-          version="${GITHUB_REF#refs/tags/}"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            version="${{ inputs.version }}"
+          else
+            version="${GITHUB_REF#refs/tags/}"
+          fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
           if [[ "$version" == *"-alpha"* || "$version" == *"-beta"* || "$version" == *"-rc"* ]]; then
             echo "prerelease=true" >> "$GITHUB_OUTPUT"
