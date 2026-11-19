@@ -1,0 +1,1 @@
+pyinstaller dextop.spec --onefile --windowed --name DeXtop
