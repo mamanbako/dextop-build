@@ -9,7 +9,7 @@ on:
       version:
         description: "Version to publish"
         required: true
-        default: "v0.1.1"
+        default: "v0.1.2"
 
 permissions:
   contents: write
@@ -50,10 +50,11 @@ jobs:
           pip install customtkinter pyinstaller
           python -c "from dextop.binaries import ensure_binaries; ensure_binaries()"
           pyinstaller dextop.spec --clean --noconfirm
+          Compress-Archive -Path dist/DeXtop.exe -DestinationPath dist/DeXtop-windows.zip -Force
       - uses: actions/upload-artifact@v4
         with:
           name: windows
-          path: dist/DeXtop.exe
+          path: dist/DeXtop-windows.zip
 
   build-linux:
     needs: prepare
@@ -109,6 +110,6 @@ jobs:
           prerelease: ${{ needs.prepare.outputs.prerelease == 'true' }}
           generate_release_notes: true
           files: |
-            artifacts/windows/DeXtop.exe
+            artifacts/windows/DeXtop-windows.zip
             artifacts/linux/DeXtop
             artifacts/macos/DeXtop-macos.zip

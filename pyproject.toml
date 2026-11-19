@@ -1,6 +1,6 @@
 [project]
 name = "dextop"
-version = "0.1.1"
+version = "0.1.2"
 description = "Alternative open-source à Samsung DeX basée sur scrcpy"
 requires-python = ">=3.10"
 dependencies = ["customtkinter>=5.2"]
