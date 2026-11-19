@@ -1,0 +1,210 @@
+name: Build & Release DeXtop
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version à publier (ex: v0.1.0)"
+        required: true
+        default: "v0.0.0"
+
+permissions:
+  contents: write
+
+jobs:
+  # ─────────────────────────────────────────────────────────────
+  # Job de préparation : détermine la version une seule fois
+  # ─────────────────────────────────────────────────────────────
+  prepare:
+    name: Préparer la version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      is_prerelease: ${{ steps.version.outputs.is_prerelease }}
+    steps:
+      - name: Déterminer la version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            VERSION="${GITHUB_REF#refs/tags/}"
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          # Détecte les pré-releases (alpha, beta, rc)
+          if [[ "$VERSION" == *"-alpha"* || "$VERSION" == *"-beta"* || "$VERSION" == *"-rc"* ]]; then
+            echo "is_prerelease=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "is_prerelease=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  # ─────────────────────────────────────────────────────────────
+  # Build Windows : EXE + installateur Inno Setup
+  # ─────────────────────────────────────────────────────────────
+  build-windows:
+    name: Build Windows
+    needs: prepare
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Installer les dépendances
+        run: |
+          python -m pip install --upgrade pip
+          pip install customtkinter pyinstaller
+
+      - name: Télécharger les binaires scrcpy + adb
+        shell: pwsh
+        run: |
+          python -c "from dextop.binaries import ensure_binaries; ensure_binaries()"
+
+      - name: Build --onefile avec PyInstaller
+        run: pyinstaller dextop.spec --clean --noconfirm
+
+      - name: Installer Inno Setup
+        run: choco install innosetup --yes --no-progress
+
+      - name: Compiler l'installateur
+        run: |
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" dextop.iss
+
+      - name: Uploader les artefacts Windows
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-${{ needs.prepare.outputs.version }}
+          path: |
+            dist/DeXtop.exe
+            installer/output/DeXtop-Setup-*.exe
+          if-no-files-found: error
+
+  # ─────────────────────────────────────────────────────────────
+  # Build Linux : binaire + AppImage
+  # ─────────────────────────────────────────────────────────────
+  build-linux:
+    name: Build Linux
+    needs: prepare
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Installer les dépendances
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libfuse2 file
+          python -m pip install --upgrade pip
+          pip install customtkinter pyinstaller
+
+      - name: Télécharger les binaires scrcpy + adb
+        run: |
+          python -c "from dextop.binaries import ensure_binaries; ensure_binaries()"
+
+      - name: Build --onefile avec PyInstaller
+        run: pyinstaller dextop.spec --clean --noconfirm
+
+      - name: Rendre le binaire exécutable
+        run: chmod +x dist/DeXtop
+
+      - name: Construire l'AppImage
+        run: |
+          chmod +x build_appimage.sh
+          ./build_appimage.sh
+
+      - name: Uploader les artefacts Linux
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-${{ needs.prepare.outputs.version }}
+          path: |
+            dist/DeXtop
+            dist/DeXtop-*.AppImage
+          if-no-files-found: error
+
+  # ─────────────────────────────────────────────────────────────
+  # Build macOS : binaire (ou .app)
+  # ─────────────────────────────────────────────────────────────
+  build-macos:
+    name: Build macOS
+    needs: prepare
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Installer les dépendances
+        run: |
+          python -m pip install --upgrade pip
+          pip install customtkinter pyinstaller
+
+      - name: Télécharger les binaires scrcpy + adb
+        run: |
+          python -c "from dextop.binaries import ensure_binaries; ensure_binaries()"
+
+      - name: Build --onefile avec PyInstaller
+        run: pyinstaller dextop.spec --clean --noconfirm
+
+      - name: Rendre le binaire exécutable
+        run: chmod +x dist/DeXtop
+
+      - name: Zipper le binaire (pour préserver les permissions)
+        run: |
+          cd dist && zip -r "DeXtop-macos-${{ needs.prepare.outputs.version }}.zip" DeXtop
+
+      - name: Uploader les artefacts macOS
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-${{ needs.prepare.outputs.version }}
+          path: dist/DeXtop-macos-*.zip
+          if-no-files-found: error
+
+  # ─────────────────────────────────────────────────────────────
+  # Création de la release GitHub avec tous les artefacts
+  # ─────────────────────────────────────────────────────────────
+  release:
+    name: Créer la Release GitHub
+    needs: [prepare, build-windows, build-linux, build-macos]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Télécharger tous les artefacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          pattern: "*-${{ needs.prepare.outputs.version }}"
+
+      - name: Afficher la structure des artefacts
+        run: find artifacts -type f -exec ls -lh {} \;
+
+      - name: Créer la Release et uploader les fichiers
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.prepare.outputs.version }}
+          name: "DeXtop ${{ needs.prepare.outputs.version }}"
+          draft: false
+          prerelease: ${{ needs.prepare.outputs.is_prerelease == 'true' }}
+          generate_release_notes: true
+          files: |
+            artifacts/**/DeXtop.exe
+            artifacts/**/DeXtop-Setup-*.exe
+            artifacts/**/DeXtop
+            artifacts/**/DeXtop-*.AppImage
+            artifacts/**/DeXtop-macos-*.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
