@@ -1,0 +1,104 @@
+name: Build & Release DeXtop
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
+    steps:
+      - id: version
+        shell: bash
+        run: |
+          version="${GITHUB_REF#refs/tags/}"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if [[ "$version" == *"-alpha"* || "$version" == *"-beta"* || "$version" == *"-rc"* ]]; then
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  build-windows:
+    needs: prepare
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          pip install customtkinter pyinstaller
+          python -c "from dextop.binaries import ensure_binaries; ensure_binaries()"
+          pyinstaller dextop.spec --clean --noconfirm
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: dist/DeXtop.exe
+
+  build-linux:
+    needs: prepare
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: |
+          python -m pip install --upgrade pip
+          pip install customtkinter pyinstaller
+          python -c "from dextop.binaries import ensure_binaries; ensure_binaries()"
+          pyinstaller dextop.spec --clean --noconfirm
+          chmod +x dist/DeXtop
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: dist/DeXtop
+
+  build-macos:
+    needs: prepare
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: |
+          python -m pip install --upgrade pip
+          pip install customtkinter pyinstaller
+          python -c "from dextop.binaries import ensure_binaries; ensure_binaries()"
+          pyinstaller dextop.spec --clean --noconfirm
+          chmod +x dist/DeXtop
+          cd dist
+          zip -r DeXtop-macos.zip DeXtop
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          path: dist/DeXtop-macos.zip
+
+  release:
+    needs: [prepare, build-windows, build-linux, build-macos]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.prepare.outputs.version }}
+          name: "DeXtop ${{ needs.prepare.outputs.version }}"
+          prerelease: ${{ needs.prepare.outputs.prerelease == 'true' }}
+          generate_release_notes: true
+          files: |
+            artifacts/windows/DeXtop.exe
+            artifacts/linux/DeXtop
+            artifacts/macos/DeXtop-macos.zip

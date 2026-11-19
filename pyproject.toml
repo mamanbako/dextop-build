@@ -1,0 +1,14 @@
+[project]
+name = "dextop"
+version = "0.1.1"
+description = "Alternative open-source à Samsung DeX basée sur scrcpy"
+requires-python = ">=3.10"
+dependencies = ["customtkinter>=5.2"]
+
+[project.scripts]
+dextop = "dextop.cli:main"
+dextop-gui = "dextop.gui:run"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"

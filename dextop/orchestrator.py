@@ -78,7 +78,7 @@ def _find_binary(name: str) -> str:
             return str(candidate)
     found = shutil.which(name)
     if not found:
-        raise FileNotFoundError(f"Binaire '{name}' introuvable. Lance DeXtop une fois pour le télécharger.")
+        return name
     return found
 
 
@@ -110,6 +110,34 @@ class ScrcpyOrchestrator:
         except (subprocess.TimeoutExpired, OSError):
             return []
         return [line.split("\t", 1)[0] for line in result.stdout.splitlines()[1:] if "\tdevice" in line]
+
+    def list_packages(self, serial: Optional[str] = None, third_party_only: bool = True) -> list[str]:
+        command = [self.adb_path]
+        if serial:
+            command.extend(["-s", serial])
+        command.extend(["shell", "pm", "list", "packages"])
+        if third_party_only:
+            command.append("-3")
+
+        try:
+            result = subprocess.run(
+                command,
+                capture_output=True,
+                text=True,
+                timeout=15,
+            )
+        except (subprocess.TimeoutExpired, OSError) as exc:
+            raise RuntimeError(f"Impossible d'interroger le device : {exc}") from exc
+
+        if result.returncode != 0:
+            message = result.stderr.strip() or f"ADB a terminé avec le code {result.returncode}"
+            raise RuntimeError(message)
+
+        return sorted({
+            line.removeprefix("package:").strip()
+            for line in result.stdout.splitlines()
+            if line.strip().startswith("package:")
+        })
 
     def build_command(self, display: DisplayConfig, connection: ConnectionConfig) -> list[str]:
         return [self.scrcpy_path, *connection.to_scrcpy_args(), *display.to_scrcpy_args()]
